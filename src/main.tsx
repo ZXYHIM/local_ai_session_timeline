@@ -674,6 +674,15 @@ function App(): JSX.Element {
   );
 }
 
-const rootEl = document.getElementById('root');
-if (rootEl === null) throw new Error('缺少 #root 挂载点');
-createRoot(rootEl).render(<App />);
+// Vite 会把入口 script 提升进 <head>；singlefile 内联为普通脚本后同步立即执行，
+// 此时 <body> 尚未解析、#root 不存在——必须用 DOM 就绪守卫，否则整个 bundle 挂掉（白屏）。
+const mountApp = (): void => {
+  const rootEl = document.getElementById('root');
+  if (rootEl === null) throw new Error('缺少 #root 挂载点');
+  createRoot(rootEl).render(<App />);
+};
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountApp, { once: true });
+} else {
+  mountApp();
+}
