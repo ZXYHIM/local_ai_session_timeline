@@ -1,0 +1,25 @@
+{
+  "name": "local_ai_session_timeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 编码会话的本地留痕与回放工具。零网络红线：构建产物（唯一 1 个 HTML，file:// 双击即开）不得发起任何网络请求（CSP connect-src 'none' + 构建期静态审计，命中即 build 失败）、不得持久化任何数据（禁 localStorage/IndexedDB/Cookie/Service Worker）、导出与复制只经脱敏白名单投影。",
+  "license": "SEE LICENSE IN LICENSE (PolyForm Noncommercial 1.0.0)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "verify:offline": "vite build --mode verify"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}

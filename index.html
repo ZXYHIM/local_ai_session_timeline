@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<!--LICENSE_NOTICE_SLOT-->
+<html lang="zh-CN">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; worker-src blob:; font-src 'none'; img-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; manifest-src 'none'; referrer-policy no-referrer">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>本地 AI 会话时间线（离线工具）</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --muted: #57606a;
+  --accent: #0969da;
+  --accent-weak: #ddf4ff;
+  --danger: #cf222e;
+  --ok: #1a7f37;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.app { max-width: 1080px; margin: 0 auto; padding: 20px 16px 32px; }
+.app-header h1 { font-size: 20px; margin: 0; }
+.title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.network-badge {
+  font-size: 12px; padding: 2px 10px; border-radius: 999px;
+  background: #eaeef2; color: var(--muted); border: 1px solid var(--border);
+}
+.mode-badge {
+  font-size: 12px; padding: 2px 10px; border-radius: 999px;
+  background: var(--accent-weak); color: var(--accent); border: 1px solid var(--border);
+}
+.mode-badge.compat { background: #fff8c5; color: #9a6700; }
+.subtitle { color: var(--muted); font-size: 13px; margin: 6px 0 16px; }
+.alert { border-radius: 8px; padding: 8px 14px; margin: 10px 0; font-size: 13px; border: 1px solid; }
+.alert-error { background: #ffebe9; border-color: #ff818266; color: var(--danger); }
+.alert-info { background: var(--accent-weak); border-color: var(--border); color: var(--text); }
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 12px; background: var(--panel);
+  padding: 48px 24px; text-align: center; margin: 16px 0;
+}
+.dropzone.dragover { border-color: var(--accent); background: var(--accent-weak); }
+.dropzone-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+.dropzone-note { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.file-button {
+  display: inline-block; background: var(--accent); color: #fff; border-radius: 8px;
+  padding: 6px 18px; font-size: 14px; cursor: pointer; border: 1px solid transparent;
+}
+.file-button.small { padding: 3px 12px; font-size: 13px; background: #eaeef2; color: var(--text); border-color: var(--border); }
+.file-button input[type="file"] { display: none; }
+.file-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.file-name { font-weight: 600; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats-bar {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-bottom: 10px;
+  font-size: 13px; color: var(--muted);
+}
+.stats-bar .parsing { color: var(--accent); }
+.search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.search-label { font-size: 13px; color: var(--muted); }
+.search-input {
+  flex: 1; padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--panel); color: var(--text);
+}
+.search-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search-count { font-size: 13px; color: var(--muted); min-width: 72px; }
+.timeline {
+  position: relative; height: 60vh; overflow: auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.timeline:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.timeline-inner { position: relative; width: 100%; }
+.timeline-empty { color: var(--muted); text-align: center; padding-top: 40px; }
+.row {
+  position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-bottom: 1px solid #eaeef2; font-size: 13px;
+}
+.row.hit { background: #fff8c5; }
+.row-check { flex: none; }
+.row-seq { flex: none; color: var(--muted); min-width: 48px; }
+.row-time { flex: none; color: var(--muted); min-width: 128px; font-variant-numeric: tabular-nums; }
+.row-kind { flex: none; min-width: 40px; text-align: center; border-radius: 6px; padding: 0 6px; font-size: 12px; }
+.k-user_message { background: #dafbe1; color: var(--ok); }
+.k-assistant_message { background: var(--accent-weak); color: var(--accent); }
+.k-tool_call { background: #fff1e5; color: #bc4c00; }
+.k-file_change { background: #fbefff; color: #8250df; }
+.k-unknown { background: #eaeef2; color: var(--muted); }
+.row-tool { flex: none; color: var(--muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-text {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text);
+}
+.export-panel, .review-panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-top: 14px;
+}
+.export-panel h2, .review-panel h2 { font-size: 15px; margin: 0 0 6px; }
+.review-result h3 { font-size: 13px; margin: 14px 0 6px; }
+.muted { color: var(--muted); font-size: 13px; margin: 4px 0; }
+.mask-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 8px; }
+.primary-button {
+  background: var(--accent); color: #fff; border: 1px solid transparent; border-radius: 8px;
+  padding: 6px 16px; font-size: 13px; cursor: pointer;
+}
+.primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.primary-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ghost-button {
+  background: #eaeef2; color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 12px; font-size: 13px; cursor: pointer;
+}
+.ghost-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.ghost-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.review-actions { display: flex; align-items: center; gap: 14px; margin: 8px 0; font-size: 13px; }
+.review-items { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.review-item { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid #eaeef2; font-size: 13px; }
+.review-item:last-child { border-bottom: none; }
+.review-item-head { flex: none; color: var(--muted); }
+.review-item-intent { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-item-usage { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.review-text { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; resize: vertical; }
+.review-text.manual { border-color: #9a6700; background: #fff8c5; }
+.copy-outcome { color: var(--ok); }
+.site-footer {
+  max-width: 1080px; margin: 0 auto; padding: 16px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 1.8;
+}
+.site-footer p { margin: 4px 0; }
+.site-footer .license-note { color: #8c959f; }
+.site-footer .sponsor a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+<footer class="site-footer">
+  <p id="privacy-notice">隐私声明：本工具零网络、零上传、零留存——所有解析与统计都在本机内存中完成，从不发起任何网络请求，也不写任何持久化存储，刷新即释放。脱敏是结构性保证：导出与复制只经字段白名单投影输出脱敏后文本；你可以取消的是纳入复盘的条目，而不是脱敏本身。剪贴板是工具内唯一可被带到外部应用或账号的出口，且只承载脱敏后文本；报告下载仅为本机文件写入、内容仍在本设备，同样只承载脱敏后文本。</p>
+  <p>本工具不调用任何模型：摘要与复盘提示词由本地确定性算法生成，如需 AI 参与复盘，请复制脱敏文本到你自己的模型账号执行。</p>
+  <p class="license-note">本工具按 PolyForm Noncommercial 1.0.0 授权（非商业使用免费）；许可全文、第三方许可与商用联系入口见本文件头部的 HTML 注释（浏览器不加载注释内容）。</p>
+  <p id="sponsor-block" hidden>SPONSOR_SLOT</p>
+</footer>
+</body>
+</html>
