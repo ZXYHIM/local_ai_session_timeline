@@ -29,6 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
@@ -821,7 +822,79 @@ function assertWhitelistDivergence(): void {
 }
 
 // ---------------------------------------------------------------------------
-// 隐私声明一致性（附 6.7 G2）
+// G3 门禁（真实形态 Key / 路径扫描；合成哨兵以 SYNTH / synth 标记排除）
+// 口径（2026-11-18 裁定）：三条真实形态正则 + /Users/[a-z]+/；命中且不含合成标记才失败。
+// 掩码正则定义行天然不命中（sk- 后没有 20+ 字符密钥、api[_-]?key 后是 "|" 非 value）。
+// ---------------------------------------------------------------------------
+
+const G3_KEY_PATTERNS: ReadonlyArray<[string, RegExp]> = [
+  ['sk-Key', /sk-[A-Za-z0-9_-]{20,}/g],
+  ['apiKey', /api[_-]?key["'\s:=]+[A-Za-z0-9]{16,}/gi],
+  ['Bearer', /Bearer\s+[A-Za-z0-9._-]{20,}/g],
+];
+const G3_PATH_PATTERN = /\/Users\/[a-z]+\//g;
+
+function listTrackedTextFiles(): string[] {
+  try {
+    const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' });
+    return out
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s !== '');
+  } catch {
+    // git 不可用时退化为目录扫描（跳过 node_modules / dist / .git）
+    const skip = new Set(['node_modules', 'dist', '.git']);
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (skip.has(entry.name)) continue;
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else files.push(path.relative(ROOT, p));
+      }
+    };
+    walk(ROOT);
+    return files;
+  }
+}
+
+function runG3Gate(): void {
+  const files = listTrackedTextFiles();
+  let synthHits = 0;
+  const violations: string[] = [];
+  for (const rel of files) {
+    let content: string;
+    try {
+      content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    } catch {
+      continue;
+    }
+    if (content.includes('\u0000')) continue; // 跳过二进制文件
+    for (const [name, pattern] of G3_KEY_PATTERNS) {
+      for (const m of content.match(pattern) ?? []) {
+        if (m.includes('SYNTH')) {
+          synthHits += 1;
+          continue;
+        }
+        violations.push(`${rel}: [${name}] ${m.slice(0, 60)}`);
+      }
+    }
+    for (const m of content.match(G3_PATH_PATTERN) ?? []) {
+      if (m.toLowerCase().includes('synth')) {
+        synthHits += 1;
+        continue;
+      }
+      violations.push(`${rel}: [path] ${m}`);
+    }
+  }
+  if (violations.length > 0) {
+    fail(`G3 门禁：发现真实形态 Key / 路径（需人工确认后处理）：\n${violations.join('\n')}`);
+  }
+  console.log(`[g3] G3 通过：真实形态 Key/路径命中 0（合成哨兵 ${synthHits} 处已排除）`);
+}
+
+// ---------------------------------------------------------------------------
+// 隐私声明一致性（附 6.7 G2 + 2026-11-18 裁定 2：README 含句为硬断言，防漂移）
 // ---------------------------------------------------------------------------
 
 function assertPrivacyParity(artifact: string): void {
@@ -830,11 +903,13 @@ function assertPrivacyParity(artifact: string): void {
   const readme = fs.readFileSync(readmePath, 'utf8');
   assertEq(artifact.includes(PRIVACY_SENTENCE), true, '产物页脚必须逐字包含附 5 隐私统一措辞');
   assertEq(artifact.includes(README_MODEL_SENTENCE), true, '产物页脚必须逐字包含 README 的不调用模型声明');
-  if (!readme.includes(PRIVACY_SENTENCE)) {
-    console.warn(
-      '[warn] README.md（当前冻结版本）尚未逐字包含附 5 隐私统一措辞句；产物页脚已按定稿渲染，README 需后续补齐该句。',
-    );
-  }
+  // 防漂移门禁：README 必须包含该句原样子串（markdown 强调符 ** 除外；页脚为纯文本副本）
+  const readmePlain = readme.replace(/\*\*/g, '');
+  assertEq(
+    readmePlain.includes(PRIVACY_SENTENCE),
+    true,
+    'README 必须包含附 5 隐私句（缺失即 build 失败，防止措辞漂移）',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -918,6 +993,7 @@ function parserRegressionPlugin(): Plugin {
       runParserRegressionTests();
       assertPromptTemplate();
       assertWhitelistDivergence();
+      runG3Gate();
       console.log('[regression] T02/T05 全部构建期断言通过（usage max 非 sum / 白名单背离 / escapeHtml / 复盘包零泄漏 / 截断 / 确定性）。');
     },
   };
